@@ -77,6 +77,7 @@ from open_webui.retrieval.utils import (
     query_doc,
     query_doc_with_hybrid_search,
 )
+from open_webui.retrieval.sentence_splitter import split_docs_by_sentence, split_docs_smart
 from open_webui.retrieval.vector.async_client import ASYNC_VECTOR_DB_CLIENT
 from open_webui.retrieval.vector.factory import VECTOR_DB_CLIENT
 from open_webui.retrieval.vector.utils import filter_metadata
@@ -1670,7 +1671,7 @@ def save_docs_to_vector_db(
                 )
 
             docs = split_docs
-            if config.CHUNK_MIN_SIZE_TARGET > 0:
+            if config.CHUNK_MIN_SIZE_TARGET > 0 and config.TEXT_SPLITTER not in {'auto', 'sentence'}:
                 docs = merge_docs_to_target_size(request, docs, config)
 
         if config.TEXT_SPLITTER in ['', 'character']:
@@ -1701,6 +1702,12 @@ def save_docs_to_vector_db(
                 add_start_index=True,
             )
             docs = text_splitter.split_documents(docs)
+        elif config.TEXT_SPLITTER == 'sentence':
+            log.info('Using sentence text splitter')
+            docs = split_docs_by_sentence(docs, config.CHUNK_SIZE, config.CHUNK_OVERLAP)
+        elif config.TEXT_SPLITTER == 'auto':
+            log.info('Using auto text splitter')
+            docs = split_docs_smart(docs, config.CHUNK_SIZE, config.CHUNK_OVERLAP)
         else:
             raise ValueError(ERROR_MESSAGES.DEFAULT('Invalid text splitter'))
 

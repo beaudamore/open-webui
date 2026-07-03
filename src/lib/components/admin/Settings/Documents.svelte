@@ -67,6 +67,32 @@
 
 	let RAGConfig = null;
 
+	const textSplitterChangeHandler = () => {
+		if (RAGConfig.TEXT_SPLITTER === 'sentence') {
+			if (Number(RAGConfig.CHUNK_SIZE) > 50) {
+				RAGConfig.CHUNK_SIZE = 5;
+			}
+
+			if (Number(RAGConfig.CHUNK_OVERLAP) > 10 || Number(RAGConfig.CHUNK_OVERLAP) >= Number(RAGConfig.CHUNK_SIZE)) {
+				RAGConfig.CHUNK_OVERLAP = 1;
+			}
+
+			RAGConfig.CHUNK_MIN_SIZE_TARGET = 0;
+		}
+
+		if (RAGConfig.TEXT_SPLITTER === 'auto') {
+			if (Number(RAGConfig.CHUNK_SIZE) < 100) {
+				RAGConfig.CHUNK_SIZE = 1000;
+			}
+
+			if (Number(RAGConfig.CHUNK_OVERLAP) > 10 || Number(RAGConfig.CHUNK_OVERLAP) >= Number(RAGConfig.CHUNK_SIZE)) {
+				RAGConfig.CHUNK_OVERLAP = 1;
+			}
+
+			RAGConfig.CHUNK_MIN_SIZE_TARGET = 0;
+		}
+	};
+
 	const embeddingModelUpdateHandler = async () => {
 		if (RAG_EMBEDDING_ENGINE === '' && RAG_EMBEDDING_MODEL.split('/').length - 1 > 1) {
 			toast.error(
@@ -923,8 +949,11 @@
 								<select
 									class="w-fit pr-8 rounded-sm px-2 text-xs bg-transparent outline-hidden text-right"
 									bind:value={RAGConfig.TEXT_SPLITTER}
+									on:change={textSplitterChangeHandler}
 								>
 									<option value="">{$i18n.t('Default')} ({$i18n.t('Character')})</option>
+									<option value="auto">{$i18n.t('Auto')}</option>
+									<option value="sentence">{$i18n.t('Sentence')}</option>
 									<option value="token">{$i18n.t('Token')} ({$i18n.t('Tiktoken')})</option>
 									<option value="token_transformers">
 										{$i18n.t('Token')} ({$i18n.t('Transformers')})
@@ -955,7 +984,7 @@
 								<Tooltip
 									placement="top-start"
 									content={$i18n.t(
-										'Split documents by markdown headers before applying character/token splitting.'
+										'Split documents by markdown headers before applying character, sentence, or token splitting.'
 									)}
 								>
 									{$i18n.t('Markdown Header Text Splitter')}
@@ -970,13 +999,21 @@
 							<div class=" flex gap-1.5 w-full">
 								<div class="  w-full justify-between">
 									<div class="self-center text-xs font-medium min-w-fit mb-1">
-										{$i18n.t('Chunk Size')}
+										{RAGConfig.TEXT_SPLITTER === 'auto'
+											? $i18n.t('Max Chunk Size')
+											: RAGConfig.TEXT_SPLITTER === 'sentence'
+											? $i18n.t('Sentences or Lines per Chunk')
+											: $i18n.t('Chunk Size')}
 									</div>
 									<div class="self-center">
 										<input
 											class=" w-full rounded-lg py-1.5 px-4 text-sm bg-gray-50 dark:text-gray-300 dark:bg-gray-850 outline-hidden"
 											type="number"
-											placeholder={$i18n.t('Enter Chunk Size')}
+											placeholder={RAGConfig.TEXT_SPLITTER === 'auto'
+												? $i18n.t('Enter Max Chunk Size')
+												: RAGConfig.TEXT_SPLITTER === 'sentence'
+												? $i18n.t('Enter Sentences or Lines per Chunk')
+												: $i18n.t('Enter Chunk Size')}
 											bind:value={RAGConfig.CHUNK_SIZE}
 											autocomplete="off"
 											min="0"
@@ -986,14 +1023,22 @@
 
 								<div class="w-full">
 									<div class=" self-center text-xs font-medium min-w-fit mb-1">
-										{$i18n.t('Chunk Overlap')}
+										{RAGConfig.TEXT_SPLITTER === 'auto'
+											? $i18n.t('Boundary Overlap')
+											: RAGConfig.TEXT_SPLITTER === 'sentence'
+											? $i18n.t('Sentence or Line Overlap')
+											: $i18n.t('Chunk Overlap')}
 									</div>
 
 									<div class="self-center">
 										<input
 											class="w-full rounded-lg py-1.5 px-4 text-sm bg-gray-50 dark:text-gray-300 dark:bg-gray-850 outline-hidden"
 											type="number"
-											placeholder={$i18n.t('Enter Chunk Overlap')}
+											placeholder={RAGConfig.TEXT_SPLITTER === 'auto'
+												? $i18n.t('Enter Boundary Overlap')
+												: RAGConfig.TEXT_SPLITTER === 'sentence'
+												? $i18n.t('Enter Sentence or Line Overlap')
+												: $i18n.t('Enter Chunk Overlap')}
 											bind:value={RAGConfig.CHUNK_OVERLAP}
 											autocomplete="off"
 											min="0"
@@ -1003,7 +1048,7 @@
 							</div>
 						</div>
 
-						{#if RAGConfig.ENABLE_MARKDOWN_HEADER_TEXT_SPLITTER}
+						{#if RAGConfig.ENABLE_MARKDOWN_HEADER_TEXT_SPLITTER && RAGConfig.TEXT_SPLITTER !== 'sentence' && RAGConfig.TEXT_SPLITTER !== 'auto'}
 							<div class="  mb-2.5 flex w-full justify-between">
 								<div class=" flex gap-1.5 w-full">
 									<div class="w-full">
