@@ -3,7 +3,12 @@ import re
 from langchain_core.documents import Document
 
 
-SENTENCE_BOUNDARY_RE = re.compile(r'(?<=[.!?])\s+')
+SENTENCE_BOUNDARY_RE = re.compile(r'([.!?]["\')\]]*)\s+')
+DEFAULT_SENTENCE_UNITS_PER_CHUNK = 5
+MAX_SENTENCE_UNITS_PER_CHUNK = 50
+DEFAULT_SENTENCE_OVERLAP_UNITS = 1
+MAX_SENTENCE_OVERLAP_UNITS = 10
+MAX_SENTENCE_UNIT_CHARS = 1000
 CODE_FILE_EXTENSIONS = {
     '.c',
     '.cc',
@@ -101,7 +106,7 @@ def split_text_into_sentences(text: str) -> list[str]:
     start = 0
 
     for boundary in SENTENCE_BOUNDARY_RE.finditer(text):
-        candidate = text[start : boundary.start()]
+        candidate = text[start : boundary.end(1)]
         if not should_split_sentence_after(candidate):
             continue
 
@@ -124,6 +129,18 @@ def split_text_into_lines(text: str) -> list[str]:
 def join_units(units: list[str], separator: str) -> str:
     content = separator.join(units)
     return content.strip() if separator == ' ' else content.rstrip()
+
+
+def normalize_sentence_chunk_settings(chunk_size: int, overlap_units: int) -> tuple[int, int]:
+    units_per_chunk = max(1, chunk_size)
+    if units_per_chunk > MAX_SENTENCE_UNITS_PER_CHUNK:
+        units_per_chunk = DEFAULT_SENTENCE_UNITS_PER_CHUNK
+
+    overlap_units = max(0, overlap_units)
+    if overlap_units > MAX_SENTENCE_OVERLAP_UNITS or overlap_units >= units_per_chunk:
+        overlap_units = min(DEFAULT_SENTENCE_OVERLAP_UNITS, max(0, units_per_chunk - 1))
+
+    return units_per_chunk, overlap_units
 
 
 def metadata_indicates_code(metadata: dict) -> bool:
@@ -207,8 +224,8 @@ def split_doc_to_sentence_chunks(doc: Document, chunk_size: int, overlap_sentenc
     if not units:
         return []
 
-    sentences_per_chunk = max(1, chunk_size)
-    overlap_sentences = min(max(0, overlap_sentences), max(0, sentences_per_chunk - 1))
+    units = split_long_units(units, MAX_SENTENCE_UNIT_CHARS)
+    sentences_per_chunk, overlap_sentences = normalize_sentence_chunk_settings(chunk_size, overlap_sentences)
     chunks: list[Document] = []
     search_start = 0
 
@@ -219,7 +236,7 @@ def split_doc_to_sentence_chunks(doc: Document, chunk_size: int, overlap_sentenc
             return
 
         metadata = {**doc.metadata}
-        start_index = doc.page_content.find(chunk_sentences[0], search_start)
+        start_index = find_unit_start(doc.page_content, chunk_sentences[0], search_start)
         if start_index >= 0:
             metadata['start_index'] = start_index
             search_start = start_index + 1
@@ -260,6 +277,27 @@ def split_long_unit(unit: str, max_chunk_size: int, overlap_chars: int) -> list[
     return chunks
 
 
+def split_long_units(units: list[str], max_unit_chars: int) -> list[str]:
+    split_units: list[str] = []
+    for unit in units:
+        split_units.extend(split_long_unit(unit, max_unit_chars, 0))
+    return split_units
+
+
+def find_unit_start(text: str, unit: str, search_start: int) -> int:
+    start_index = text.find(unit, search_start)
+    if start_index >= 0:
+        return start_index
+
+    parts = [part for part in re.split(r'\s+', unit.strip()) if part]
+    if not parts:
+        return -1
+
+    pattern = r'\s+'.join(re.escape(part) for part in parts)
+    match = re.search(pattern, text[search_start:])
+    return search_start + match.start() if match else -1
+
+
 def split_doc_to_smart_chunks(doc: Document, max_chunk_size: int, overlap_units: int) -> list[Document]:
     units, separator, unit_type = split_text_into_smart_units(doc.page_content, doc.metadata)
     if not units:
@@ -281,7 +319,7 @@ def split_doc_to_smart_chunks(doc: Document, max_chunk_size: int, overlap_units:
             'chunking_strategy': f'auto:{unit_type}',
             'chunk_unit': unit_type,
         }
-        start_index = doc.page_content.find(chunk_units[0], search_start)
+        start_index = find_unit_start(doc.page_content, chunk_units[0], search_start)
         if start_index >= 0:
             metadata['start_index'] = start_index
             search_start = start_index + 1

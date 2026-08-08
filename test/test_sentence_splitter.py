@@ -27,6 +27,19 @@ def test_sentence_splitter_preserves_common_abbreviations():
     ]
 
 
+def test_sentence_splitter_handles_closing_quotes_and_brackets():
+    text = 'He said "go." Then left. A sentence.) Next sentence. Is it done?] Yes.'
+
+    assert split_text_into_sentences(text) == [
+        'He said "go."',
+        'Then left.',
+        'A sentence.)',
+        'Next sentence.',
+        'Is it done?]',
+        'Yes.',
+    ]
+
+
 def test_sentence_chunks_overlap_complete_sentences_and_preserve_metadata():
     doc = Document(
         page_content='Alpha sentence. Beta sentence is longer. Gamma sentence follows. Delta closes.',
@@ -45,6 +58,19 @@ def test_sentence_chunks_overlap_complete_sentences_and_preserve_metadata():
     assert [chunk.metadata['start_index'] for chunk in chunks] == [0, 16, 41]
 
 
+def test_sentence_chunks_find_start_index_after_whitespace_normalization():
+    doc = Document(page_content='Alpha sentence.\nBeta   sentence follows. Gamma.', metadata={})
+
+    chunks = split_doc_to_sentence_chunks(doc, chunk_size=1, overlap_sentences=0)
+
+    assert [chunk.page_content for chunk in chunks] == [
+        'Alpha sentence.',
+        'Beta sentence follows.',
+        'Gamma.',
+    ]
+    assert [chunk.metadata['start_index'] for chunk in chunks] == [0, 16, 41]
+
+
 def test_sentence_chunks_keep_long_single_sentence_intact():
     text = 'This sentence is intentionally much longer than the configured chunk size. Short one.'
     doc = Document(page_content=text, metadata={})
@@ -55,6 +81,18 @@ def test_sentence_chunks_keep_long_single_sentence_intact():
     assert chunks[1].page_content == 'Short one.'
 
 
+def test_sentence_chunks_split_pathologically_long_single_sentence():
+    text = f'{"A" * 1200}. Short one.'
+    doc = Document(page_content=text, metadata={})
+
+    chunks = split_doc_to_sentence_chunks(doc, chunk_size=1, overlap_sentences=0)
+
+    assert [len(chunk.page_content) for chunk in chunks] == [1000, 201, 10]
+    assert chunks[0].page_content == 'A' * 1000
+    assert chunks[1].page_content == f'{"A" * 200}.'
+    assert chunks[2].page_content == 'Short one.'
+
+
 def test_sentence_overlap_is_capped_below_chunk_size():
     doc = Document(page_content='One. Two. Three.', metadata={})
 
@@ -63,6 +101,17 @@ def test_sentence_overlap_is_capped_below_chunk_size():
     assert [chunk.page_content for chunk in chunks] == [
         'One. Two.',
         'Two. Three.',
+    ]
+
+
+def test_sentence_chunks_normalize_unsafe_default_chunk_settings():
+    doc = Document(page_content='One. Two. Three. Four. Five. Six.', metadata={})
+
+    chunks = split_doc_to_sentence_chunks(doc, chunk_size=1000, overlap_sentences=100)
+
+    assert [chunk.page_content for chunk in chunks] == [
+        'One. Two. Three. Four. Five.',
+        'Five. Six.',
     ]
 
 
