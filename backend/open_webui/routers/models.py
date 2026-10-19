@@ -50,6 +50,7 @@ from open_webui.utils.access_control.files import has_access_to_file
 from open_webui.utils.auth import get_admin_user, get_verified_user
 from open_webui.utils.chat_variables import get_chat_variables_schema
 from open_webui.utils.models import get_all_models
+from open_webui.utils.profile_image import normalize_width, resize_image_bytes
 from open_webui.utils.validate import BACKGROUND_IMAGE_MAX_BYTES, validate_background_image
 from open_webui.utils.voice_avatar import (
     AVATAR_MAX_BYTES,
@@ -994,11 +995,24 @@ async def set_model_version(
 async def get_model_profile_image(
     request: Request,
     id: str,
+    width: int | None = None,
     user=Depends(get_verified_user),
     db: AsyncSession = Depends(get_async_session),
 ):
+    """
+    Serve a model's avatar.
+
+    ``width`` (optional, 1-512) downscales a stored data-URI avatar so its
+    longest side is at most ``width`` pixels, preserving aspect ratio and never
+    upscaling. This lets content that embeds the URL (e.g. a pipeline writing
+    ``![name](/api/v1/models/model/profile/image?id=...&width=60)``) show the
+    avatar at thumbnail size, since markdown images render at native size.
+    ``width`` is ignored for avatars that are external URLs or static files,
+    which are redirected to as before.
+    """
     profile_image_url = None
     updated_at = None
+    width = normalize_width(width)
 
     bypass_access_control = BYPASS_MODEL_ACCESS_CONTROL or (user.role == 'admin' and BYPASS_ADMIN_ACCESS_CONTROL)
 
@@ -1063,12 +1077,20 @@ async def get_model_profile_image(
                         status_code=status.HTTP_302_FOUND,
                     )
 
+                if width:
+                    try:
+                        image_data, media_type = resize_image_bytes(image_data, media_type, width)
+                        image_buffer = io.BytesIO(image_data)
+                    except Exception as e:
+                        # Serve the stored image rather than failing the <img> request.
+                        log.debug(f'Profile image resize skipped for model {id}: {e}')
+
                 headers = {
                     'Content-Disposition': 'inline',
                     'X-Content-Type-Options': 'nosniff',
                 }
                 if updated_at:
-                    headers['ETag'] = f'"{updated_at}"'
+                    headers['ETag'] = f'"{updated_at}-w{width}"' if width else f'"{updated_at}"'
 
                 return StreamingResponse(
                     image_buffer,
