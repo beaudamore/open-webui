@@ -1284,8 +1284,11 @@ def convert_openapi_to_tool_payload(openapi_spec):
                         if resolved_schema.get('properties'):
                             tool['parameters']['properties'].update(resolved_schema['properties'])
                             if 'required' in resolved_schema:
+                                # Deduplicate while keeping the declared order: a set() here made the
+                                # order depend on per-process string hashing, so it could change on
+                                # every restart and break prompt caching for every chat using the tool.
                                 tool['parameters']['required'] = list(
-                                    set(tool['parameters']['required'] + resolved_schema['required'])
+                                    dict.fromkeys(tool['parameters']['required'] + resolved_schema['required'])
                                 )
                         elif resolved_schema.get('type') == 'array':
                             tool['parameters'] = resolved_schema  # special case for array
